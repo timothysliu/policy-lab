@@ -1,0 +1,13 @@
+# build output (recreate with: npm run build)
+dist/
+
+# dependencies and logs
+node_modules/
+npm-debug.log*
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp

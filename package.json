@@ -1,0 +1,14 @@
+{
+  "name": "policy-lab",
+  "version": "1.1.0",
+  "description": "Agent-based simulation of two economies that trade and swap residents, with a live policy dashboard.",
+  "private": true,
+  "scripts": {
+    "test": "node --test",
+    "build": "node scripts/build.js",
+    "scenarios": "node scripts/scenarios.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

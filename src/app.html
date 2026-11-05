@@ -1,0 +1,684 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Two-Region Policy Lab</title>
+<style>
+:root {
+  /* Layout: control bar on top, policy panel left, comparison table + chart grid right. */
+  color-scheme: light;
+  --page: #f6f6f3;
+  --surface: #fcfcfb;
+  --ink: #0b0b0b;
+  --ink-2: #52514e;
+  --muted: #7a7873;
+  --grid: #e5e4de;
+  --axis: #c3c2b7;
+  --border: rgba(11, 11, 11, 0.10);
+  --accent: #2b2a27;
+  --accent-ink: #fcfcfb;
+  --wash: rgba(11, 11, 11, 0.045);
+  --a: #2a78d6;
+  --b: #eb6834;
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --radius: 8px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --page: #0f0f0e; --surface: #1a1a19; --ink: #f0efec; --ink-2: #c3c2b7; --muted: #8f8d87;
+    --grid: #2c2c2a; --axis: #383835; --border: rgba(255, 255, 255, 0.10);
+    --accent: #e9e8e3; --accent-ink: #141413; --wash: rgba(255, 255, 255, 0.06);
+    --a: #3987e5; --b: #d95926;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0f0f0e; --surface: #1a1a19; --ink: #f0efec; --ink-2: #c3c2b7; --muted: #8f8d87;
+  --grid: #2c2c2a; --axis: #383835; --border: rgba(255, 255, 255, 0.10);
+  --accent: #e9e8e3; --accent-ink: #141413; --wash: rgba(255, 255, 255, 0.06);
+  --a: #3987e5; --b: #d95926;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--page); color: var(--ink); font: 14px/1.45 var(--font); }
+h1, h2, h3 { text-wrap: balance; margin: 0; }
+.wrap { max-width: 1440px; margin: 0 auto; padding: 20px 16px 48px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+.bar label.inline select { min-width: 0; flex: 1; }
+header.top { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px; }
+header.top h1 { font-size: 22px; letter-spacing: -0.01em; }
+header.top p { margin: 4px 0 0; color: var(--ink-2); max-width: 70ch; }
+.clock { font-variant-numeric: tabular-nums; font-size: 15px; color: var(--ink-2); }
+.clock strong { color: var(--ink); font-size: 20px; }
+
+.bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; }
+.bar .sep { width: 1px; align-self: stretch; background: var(--border); margin: 0 4px; }
+select { max-width: 100%; }
+button, select { font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--axis); border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+button:hover, select:hover { background: var(--wash); }
+button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); min-width: 92px; font-weight: 600; }
+button.primary:hover { opacity: 0.9; }
+button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--a); outline-offset: 2px; }
+.seg { display: inline-flex; border: 1px solid var(--axis); border-radius: 6px; overflow: hidden; }
+.seg button { border: 0; border-radius: 0; padding: 6px 10px; }
+.seg button + button { border-left: 1px solid var(--axis); }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+.bar label.inline { max-width: 100%; display: inline-flex; align-items: center; gap: 6px; color: var(--ink-2); }
+
+.main { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 960px) { .main { grid-template-columns: minmax(0, 1fr); } }
+
+.panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+.panel > h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 600; padding: 14px 16px 0; }
+.tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 0; border-bottom: 1px solid var(--border); }
+.tabs button { border: 0; border-radius: 0; background: transparent; padding: 12px; font-weight: 600; display: flex; gap: 8px; align-items: center; justify-content: center; border-bottom: 3px solid transparent; }
+.tabs button[aria-selected="true"] { border-bottom-color: currentColor; }
+.tabs button[data-r="0"][aria-selected="true"] { color: var(--a); }
+.tabs button[data-r="1"][aria-selected="true"] { color: var(--b); }
+.swatch { width: 14px; height: 3px; border-radius: 2px; display: inline-block; }
+.policy { padding: 6px 16px 16px; display: grid; gap: 14px; }
+.ctl { display: grid; gap: 4px; }
+.ctl .row { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.ctl label { font-weight: 600; }
+.ctl output { font-variant-numeric: tabular-nums; font-weight: 600; }
+.ctl small { color: var(--muted); }
+input[type="range"] { width: 100%; accent-color: var(--accent); margin: 2px 0; }
+.toggle { display: flex; gap: 8px; align-items: center; }
+.policy .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.policy .actions button { font-size: 13px; padding: 5px 10px; }
+.global { padding: 12px 16px 16px; border-top: 1px solid var(--border); display: grid; gap: 8px; }
+.global h3 { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+
+.right { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; min-width: 0; }
+.legend { display: flex; gap: 16px; align-items: center; color: var(--ink-2); flex-wrap: wrap; }
+.legend span { display: inline-flex; gap: 6px; align-items: center; }
+
+table.cmp { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.tablewrap { overflow-x: auto; padding: 4px 16px 12px; }
+table.cmp th, table.cmp td { text-align: right; padding: 7px 10px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+table.cmp th:first-child, table.cmp td:first-child { text-align: left; color: var(--ink-2); }
+table.cmp thead th { font-size: 12px; color: var(--muted); font-weight: 600; }
+table.cmp td.diff { color: var(--muted); }
+table.cmp tr:last-child td { border-bottom: 0; }
+.head-a { color: var(--a); } .head-b { color: var(--b); }
+
+.charts { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr)); gap: 12px; }
+.chart { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 12px 6px; display: grid; gap: 2px; }
+.chart h3 { font-size: 14px; }
+.chart .sub { font-size: 12px; color: var(--muted); }
+.chart canvas { width: 100%; height: 170px; display: block; touch-action: none; }
+
+.tip { position: fixed; pointer-events: none; background: var(--surface); color: var(--ink); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; font-size: 12px; box-shadow: 0 4px 18px rgba(0,0,0,0.14); display: none; z-index: 10; min-width: 150px; font-variant-numeric: tabular-nums; }
+.tip .t { color: var(--muted); margin-bottom: 4px; }
+.tip .r { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
+.tip .r b { font-weight: 700; }
+.tip .r span.k { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-2); }
+.tip .ev { margin-top: 6px; color: var(--ink-2); max-width: 240px; white-space: normal; }
+
+.lower { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 960px) { .lower { grid-template-columns: minmax(0, 1fr); } }
+.log { list-style: none; margin: 0; padding: 8px 16px 14px; max-height: 260px; overflow-y: auto; display: grid; gap: 6px; }
+.log li { display: flex; gap: 10px; align-items: baseline; }
+.log time { color: var(--muted); font-variant-numeric: tabular-nums; min-width: 92px; }
+.log .empty { color: var(--muted); }
+.pill { font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 999px; color: #fff; }
+.pill.a { background: var(--a); } .pill.b { background: var(--b); }
+.about { padding: 8px 16px 16px; color: var(--ink-2); }
+.about p { margin: 0 0 8px; max-width: 68ch; }
+.about ul { margin: 0 0 8px; padding-left: 18px; max-width: 68ch; }
+.about strong { color: var(--ink); }
+body.one .onlyTwo, body.one .tabs { display: none !important; }
+body:not(.linked) .onlyLinked { display: none !important; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>Two-Region Policy Lab</h1>
+      <p id="blurb"></p>
+    </div>
+    <div class="clock" aria-live="polite"><strong id="clock">Year 0</strong> <span id="clockSub"></span></div>
+  </header>
+
+  <div class="bar" role="toolbar" aria-label="Simulation controls">
+    <button class="primary" id="play">Play</button>
+    <button id="stepYear">+1 year</button>
+    <div class="seg" role="group" aria-label="Speed">
+      <button data-speed="3">Slow</button>
+      <button data-speed="10" aria-pressed="true">Normal</button>
+      <button data-speed="40">Fast</button>
+    </div>
+    <span class="sep" aria-hidden="true"></span>
+    <label class="inline" for="mode">Mode
+      <select id="mode">
+        <option value="linked">Two linked regions</option>
+        <option value="twins">Identical twins</option>
+        <option value="single">Single country</option>
+      </select>
+    </label>
+    <label class="inline" for="scenario">Scenario
+      <select id="scenario"></select>
+    </label>
+    <button id="reset">Restart</button>
+    <button id="reseed" title="Same scenario with a different random draw">New random seed</button>
+  </div>
+
+  <div class="main">
+    <aside class="panel" aria-label="Policies">
+      <div class="tabs" role="tablist">
+        <button role="tab" data-r="0" aria-selected="true" id="tabA"><span class="swatch" style="background:var(--a)"></span><span class="nm" data-r="0">Region A</span></button>
+        <button role="tab" data-r="1" aria-selected="false" id="tabB"><span class="swatch" style="background:var(--b)"></span><span class="nm" data-r="1">Region B</span></button>
+      </div>
+      <div class="policy" id="policy" role="tabpanel"></div>
+      <div class="global onlyLinked" id="globalOpts">
+        <h3>Both regions</h3>
+        <label class="toggle"><input type="checkbox" id="optMig" checked> People can move between regions</label>
+        <label class="toggle"><input type="checkbox" id="optTrade" checked> Regions trade goods</label>
+      </div>
+    </aside>
+
+    <section class="right">
+      <div class="panel">
+        <h2>Right now</h2>
+        <div class="tablewrap">
+          <table class="cmp" aria-label="Current indicators by region">
+            <thead><tr id="cmpHead"></tr></thead>
+            <tbody id="cmp"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="legend" aria-label="Legend">
+        <span><span class="swatch" style="background:var(--a)"></span><span class="nm" data-r="0">Region A</span></span>
+        <span class="onlyTwo"><span class="swatch" style="background:var(--b)"></span><span class="nm" data-r="1">Region B</span></span>
+        <span><span class="swatch" style="background:var(--muted);height:10px;width:1px"></span>Policy change</span>
+      </div>
+      <div class="charts" id="charts"></div>
+    </section>
+  </div>
+
+  <div class="lower">
+    <div class="panel">
+      <h2>Policy changes</h2>
+      <ul class="log" id="log"></ul>
+    </div>
+    <div class="panel">
+      <h2>How the model works</h2>
+      <div class="about">
+        <p>Each tick is one month. <strong>Households</strong> differ in skill and wealth. They work if a firm hires them, pay income and wealth tax where they live, get UBI, spend part of their income and wealth, and save the rest. Richer households spend a smaller share.</p>
+        <p><strong>Firms</strong> hire workers whose output covers their pay, raise prices when shelves run low and cut them when unsold goods pile up, raise wages when they can't fill jobs, pay out spare cash as dividends to shareholders (everyone, in proportion to wealth) and go bankrupt when they run out of money.</p>
+        <p><strong>Trade:</strong> shoppers buy mostly from home but shift toward the other region's goods when they are cheaper. A tariff makes imports dearer and goes to the importing government. <strong>Migration:</strong> each month a few people compare their after-tax situation in both regions and move if the gain beats their moving cost. Crowding makes a region less attractive.</p>
+        <p>These are assumptions, not forecasts. The results show what follows <em>if</em> people and firms behave this way, which makes the model useful for testing ideas, not for predicting a real economy.</p>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="tip" id="tip" role="tooltip"></div>
+
+<script src="engine.js"></script>
+<script>
+(function () {
+  'use strict';
+  const { Economy, TwinEconomy, DEFAULT_POLICY, PARAMS, POLICY_LABELS } = window.EconSim;
+  const MODES = {
+    linked: { names: ['Region A', 'Region B'], subj: ['Region A', 'Region B'], tags: ['A', 'B'],
+      blurb: '2,000 simulated households and 80 firms in two regions that trade with each other and swap residents. Both start as exact copies. Change a region\u2019s policy and watch how jobs, prices, inequality and migration respond.' },
+    twins: { names: ['Twin A', 'Twin B'], subj: ['Twin A', 'Twin B'], tags: ['A', 'B'],
+      blurb: 'Two copies of the same country, built from the same random draws, with no trade or migration between them. With equal policies their lines overlap exactly, so any gap that opens up is caused by the policy you change.' },
+    single: { names: ['Country'], subj: ['The country'], tags: [''],
+      blurb: 'One closed economy: 1,000 simulated households and 40 firms, no trade and no migration. Change its policies and watch how jobs, prices and inequality respond.' },
+  };
+  let mode = 'linked';
+  const M = () => MODES[mode];
+  const nReg = () => mode === 'single' ? 1 : 2;
+
+  // ---------- formatting
+  const money = (v) => {
+    const a = Math.abs(v), s = v < 0 ? '−' : '';
+    if (a >= 1e6) return s + '$' + (a / 1e6).toFixed(1) + 'M';
+    if (a >= 1e4) return s + '$' + Math.round(a / 1e3) + 'k';
+    if (a >= 1e3) return s + '$' + (a / 1e3).toFixed(1) + 'k';
+    return s + '$' + Math.round(a);
+  };
+  const pct = (v, d = 1) => { const t = Math.abs(v * 100).toFixed(d); return (v < 0 && +t !== 0 ? '−' : '') + t + '%'; };
+  const signed = (s, v) => (v > 0 ? '+' : '') + s;
+  const when = (m) => { const y = Math.floor(m / 12), mo = m % 12 + 1; return `Year ${y}, month ${mo}`; };
+
+  // ---------- policy controls
+  const CONTROLS = [
+    { key: 'incomeTax', label: 'Income tax', min: 0, max: 0.5, step: 0.01, fmt: v => pct(v, 0), note: 'On income up to $240k a year' },
+    { key: 'topTax', label: 'Top income tax', min: 0, max: 0.7, step: 0.01, fmt: v => pct(v, 0), note: 'On income above $240k a year' },
+    { key: 'wealthTax', label: 'Wealth tax', min: 0, max: 0.08, step: 0.0025, fmt: v => pct(v, 2), note: 'Per year, on wealth above $1M' },
+    { key: 'corpTax', label: 'Corporate tax', min: 0, max: 0.5, step: 0.01, fmt: v => pct(v, 0), note: 'On firm profits in this region' },
+    { key: 'ubi', label: 'Universal basic income', min: 0, max: 2000, step: 50, fmt: v => money(v) + '/mo', note: 'Paid to every resident' },
+    { key: 'minWage', label: 'Minimum wage', min: 0, max: 6000, step: 100, fmt: v => v ? money(v) + '/mo' : 'None', note: v => v ? `About $${(v / 173).toFixed(2)}/hour full time` : 'Average pay starts near $5k/month' },
+    { key: 'tariff', label: 'Tariff on imports', min: 0, max: 1, step: 0.05, fmt: v => pct(v, 0), note: 'On goods bought from the other region' },
+    { key: 'publicSpending', label: 'Public spending', min: 0, max: 0.3, step: 0.01, fmt: v => pct(v, 0) + ' of GDP', note: 'Only used when the budget isn’t balanced' },
+  ];
+
+  let econ, seed = 3, running = false, speed = 10, activeRegion = 0, schedule = [], scenarioId = 'baseline';
+
+  const ALL = ['linked', 'twins', 'single'];
+  const SCENARIOS = [
+    { id: 'baseline', name: S => 'No policy changes', steps: [], modes: ALL },
+    { id: 'wealth', name: S => `${S[0]} adds a 3% wealth tax`, steps: [[24, 0, 'wealthTax', 0.03]], modes: ALL },
+    { id: 'minwage', name: S => `${S[0]} sets a $3,000/mo minimum wage`, steps: [[24, 0, 'minWage', 3000]], modes: ALL },
+    { id: 'tariff', name: S => 'Trade war: A tariffs, B retaliates', steps: [[24, 0, 'tariff', 0.3], [36, 1, 'tariff', 0.3]], modes: ['linked'] },
+    { id: 'ubi', name: S => `${S[0]} pays $1,000/mo UBI (tax-funded)`, steps: [[24, 0, 'ubi', 1000], [24, 0, 'incomeTax', 0.32]], modes: ALL },
+    { id: 'ubidebt', name: S => `${S[0]} pays $1,000/mo UBI on borrowed money`, steps: [[24, 0, 'balancedBudget', false], [24, 0, 'publicSpending', 0.14], [24, 0, 'ubi', 1000]], modes: ALL },
+    { id: 'race', name: S => `${S[1]} cuts top and corporate taxes`, steps: [[24, 1, 'topTax', 0.2], [24, 1, 'corpTax', 0.1]], modes: ['linked', 'twins'] },
+  ];
+
+  const $ = (id) => document.getElementById(id);
+  const scenarioSel = $('scenario');
+  function fillScenarios() {
+    scenarioSel.textContent = '';
+    const avail = SCENARIOS.filter(s => s.modes.includes(mode));
+    if (!avail.some(s => s.id === scenarioId)) scenarioId = 'baseline';
+    for (const s of avail) { const o = document.createElement('option'); o.value = s.id; o.textContent = s.name(M().subj); scenarioSel.appendChild(o); }
+    scenarioSel.value = scenarioId;
+  }
+  function applyModeChrome() {
+    document.body.classList.toggle('one', mode === 'single');
+    document.body.classList.toggle('linked', mode === 'linked');
+    $('blurb').textContent = M().blurb;
+    for (const el of document.querySelectorAll('.nm')) el.textContent = M().names[+el.dataset.r] || '';
+    if (mode === 'single') activeRegion = 0;
+    for (const u of document.querySelectorAll('.tabs button')) u.setAttribute('aria-selected', +u.dataset.r === activeRegion ? 'true' : 'false');
+    const head = $('cmpHead'); head.textContent = '';
+    const cols = [['Indicator', ''], [M().names[0], 'head-a']];
+    if (nReg() === 2) cols.push([M().names[1], 'head-b'], ['A minus B', '']);
+    for (const [t, cls] of cols) { const th = document.createElement('th'); th.textContent = t; if (cls) th.className = cls; head.appendChild(th); }
+    for (const st of chartEls) st.card.style.display = st.c.modes.includes(mode) ? '' : 'none';
+    fillScenarios();
+  }
+
+  function buildPolicyPanel() {
+    const host = $('policy');
+    host.textContent = '';
+    const pol = econ.policies[activeRegion];
+    for (const c of CONTROLS) {
+      if (c.key === 'publicSpending' && pol.balancedBudget) continue;
+      if (c.key === 'tariff' && mode !== 'linked') continue;   // no trade outside linked mode
+      const wrap = document.createElement('div'); wrap.className = 'ctl';
+      const id = `ctl-${c.key}`;
+      const row = document.createElement('div'); row.className = 'row';
+      const lab = document.createElement('label'); lab.htmlFor = id; lab.textContent = c.label;
+      const out = document.createElement('output'); out.htmlFor = id; out.textContent = c.fmt(pol[c.key]);
+      row.append(lab, out);
+      const inp = document.createElement('input');
+      Object.assign(inp, { type: 'range', id, min: c.min, max: c.max, step: c.step, value: pol[c.key] });
+      const note = document.createElement('small');
+      const noteText = (v) => typeof c.note === 'function' ? c.note(v) : c.note;
+      note.textContent = noteText(pol[c.key]);
+      inp.addEventListener('input', () => { const v = +inp.value; out.textContent = c.fmt(v); note.textContent = noteText(v); });
+      inp.addEventListener('change', () => { econ.setPolicy(activeRegion, c.key, +inp.value); renderLog(); draw(); });
+      wrap.append(row, inp, note);
+      host.appendChild(wrap);
+    }
+    const bb = document.createElement('label'); bb.className = 'toggle';
+    const cb = document.createElement('input'); cb.type = 'checkbox'; cb.id = 'ctl-balanced'; cb.checked = pol.balancedBudget;
+    cb.addEventListener('change', () => { econ.setPolicy(activeRegion, 'balancedBudget', cb.checked); buildPolicyPanel(); renderLog(); draw(); });
+    bb.append(cb, document.createTextNode(' Balanced budget (spend what taxes bring in)'));
+    host.appendChild(bb);
+    const act = document.createElement('div'); act.className = 'actions';
+    if (nReg() === 2) {
+      const other = 1 - activeRegion;
+      const copy = document.createElement('button'); copy.textContent = `Copy ${M().names[other]}'s policies`;
+      copy.addEventListener('click', () => { for (const k of Object.keys(DEFAULT_POLICY)) econ.setPolicy(activeRegion, k, econ.policies[other][k]); buildPolicyPanel(); renderLog(); draw(); });
+      act.append(copy);
+    }
+    const def = document.createElement('button'); def.textContent = 'Back to defaults';
+    def.addEventListener('click', () => { for (const k of Object.keys(DEFAULT_POLICY)) econ.setPolicy(activeRegion, k, DEFAULT_POLICY[k]); buildPolicyPanel(); renderLog(); draw(); });
+    act.append(def);
+    host.appendChild(act);
+  }
+
+  for (const t of document.querySelectorAll('.tabs button')) {
+    t.addEventListener('click', () => {
+      activeRegion = +t.dataset.r;
+      for (const u of document.querySelectorAll('.tabs button')) u.setAttribute('aria-selected', u === t ? 'true' : 'false');
+      buildPolicyPanel();
+    });
+  }
+
+  // ---------- charts
+  const smooth3 = (arr, i, key) => {
+    let s = 0, n = 0;
+    for (let k = Math.max(0, i - 2); k <= i; k++) { s += arr[k][key]; n++; }
+    return s / n;
+  };
+  const CHARTS = [
+    { key: 'unemployment', title: 'Unemployment', sub: 'Share of residents without a job, 3-month average', fmt: v => pct(v), smooth: true, zero: true , pctAxis: true },
+    { key: 'inflation', title: 'Inflation', sub: 'Consumer prices vs. 12 months earlier', fmt: v => pct(v), zeroLine: true , pctAxis: true },
+    { key: 'realGdpPerCapita', title: 'Output per person', sub: 'Real, per year, 3-month average', fmt: money, smooth: true },
+    { key: 'medianRealIncome', title: 'Median income after tax', sub: 'Real, per year, includes UBI, 3-month average', fmt: money, smooth: true },
+    { key: 'top1', title: 'Top 1% wealth share', sub: 'Share of wealth held by the richest 1%', fmt: v => pct(v), zero: true , pctAxis: true },
+    { key: 'giniWealth', title: 'Wealth inequality', sub: 'Gini coefficient: 0 = everyone equal, 1 = one person owns everything', fmt: v => v.toFixed(2), modes: ['twins', 'single'] },
+    { key: 'pop', title: 'Population', sub: 'Residents; both regions start with 1,000', fmt: v => Math.round(v).toLocaleString(), modes: ['linked'] },
+    { key: 'debtToGdp', title: 'Government debt', sub: 'Accumulated deficits as % of a year’s GDP', fmt: v => pct(v, 1), pctAxis: true, zeroLine: true },
+    { key: 'tradeBalance', title: 'Trade balance', sub: 'Exports minus imports, % of GDP, 3-month average', fmt: v => pct(v), smooth: true, zeroLine: true , pctAxis: true, modes: ['linked'] },
+  ];
+  for (const c of CHARTS) if (!c.modes) c.modes = ALL;
+  const chartHost = $('charts');
+  const chartEls = CHARTS.map(c => {
+    const card = document.createElement('div'); card.className = 'chart';
+    const h = document.createElement('h3'); h.textContent = c.title;
+    const s = document.createElement('div'); s.className = 'sub'; s.textContent = c.sub;
+    const cv = document.createElement('canvas');
+    cv.setAttribute('role', 'img'); cv.setAttribute('aria-label', c.title + ' over time');
+    card.append(h, s, cv); chartHost.appendChild(card);
+    const st = { c, cv, card, hover: null, geom: null };
+    cv.addEventListener('pointermove', (e) => { st.hover = e; drawChart(st); showTip(st, e); });
+    cv.addEventListener('pointerleave', () => { st.hover = null; drawChart(st); $('tip').style.display = 'none'; });
+    return st;
+  });
+
+  const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+  function niceTicks(min, max, count) {
+    if (min === max) { min -= 1; max += 1; }
+    const span = max - min, raw = span / count;
+    const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+    const norm = raw / mag;
+    const step = (norm < 1.5 ? 1 : norm < 3 ? 2 : norm < 7 ? 5 : 10) * mag;
+    const lo = Math.floor(min / step) * step, hi = Math.ceil(max / step) * step;
+    const ticks = [];
+    for (let v = lo; v <= hi + step * 0.5; v += step) ticks.push(+v.toFixed(10));
+    return { lo, hi, ticks };
+  }
+
+  function series(c, r) {
+    if (r >= nReg()) return [];
+    const h = econ.history[r];
+    return h.map((d, i) => c.smooth ? smooth3(h, i, c.key) : d[c.key]);
+  }
+
+  function drawChart(st) {
+    const { c, cv } = st;
+    const dpr = window.devicePixelRatio || 1;
+    const W = cv.clientWidth, Hh = cv.clientHeight;
+    if (!W) return;
+    if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(Hh * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(Hh * dpr); }
+    const ctx = cv.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, W, Hh);
+    const col = { a: css('--a'), b: css('--b'), grid: css('--grid'), axis: css('--axis'), muted: css('--muted'), ink: css('--ink'), ink2: css('--ink-2'), surface: css('--surface') };
+    const sA = series(c, 0), sB = series(c, 1);
+    const n = sA.length;
+    ctx.font = '11px ' + css('--font');
+    // y range
+    let mn = Infinity, mx = -Infinity;
+    for (const v of sA.concat(sB)) { if (v < mn) mn = v; if (v > mx) mx = v; }
+    if (!isFinite(mn)) { mn = 0; mx = 1; }
+    if (c.zero) mn = Math.min(0, mn);
+    if (c.zeroLine) { mn = Math.min(mn, 0); mx = Math.max(mx, 0); }
+    const pad = (mx - mn) * 0.08 || Math.abs(mx) * 0.05 || 1;
+    if (!c.zero) mn -= pad; mx += pad;
+    if (c.zero && mn < 0) mn -= pad;
+    const { lo, hi, ticks } = niceTicks(mn, mx, 4);
+    // left gutter from widest label
+    const step = ticks.length > 1 ? ticks[1] - ticks[0] : 1;
+    const tfmt = c.pctAxis ? (v) => pct(v, Math.max(0, Math.ceil(-Math.log10(step * 100) + 1e-9))) : c.fmt;
+    let gut = 0; for (const t of ticks) gut = Math.max(gut, ctx.measureText(tfmt(t)).width);
+    const L = gut + 10, R = 64, T = 8, B = 20;
+    const pw = W - L - R, ph = Hh - T - B;
+    const xMax = Math.max(24, n);
+    const X = (i) => L + (i / (xMax - 1 || 1)) * pw;
+    const Y = (v) => T + (1 - (v - lo) / (hi - lo)) * ph;
+    st.geom = { L, R, T, B, pw, ph, X, n, xMax, W };
+    // grid + y labels
+    ctx.textBaseline = 'middle'; ctx.textAlign = 'right';
+    for (const t of ticks) {
+      const y = Math.round(Y(t)) + 0.5;
+      ctx.strokeStyle = (t === 0 && (c.zeroLine || c.zero)) ? col.axis : col.grid; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(L, y); ctx.lineTo(L + pw, y); ctx.stroke();
+      ctx.fillStyle = col.muted; ctx.fillText(tfmt(t), L - 6, y);
+    }
+    // x labels: years
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    const years = Math.floor((xMax - 1) / 12);
+    const yStep = years <= 6 ? 1 : years <= 15 ? 2 : years <= 40 ? 5 : 10;
+    for (let y = 0; y <= years; y += yStep) {
+      const x = X(y * 12);
+      ctx.fillStyle = col.muted; ctx.fillText(y === 0 ? 'Yr 0' : String(y), x, T + ph + 6);
+    }
+    // policy change markers
+    const evMonths = new Map();
+    for (const e of econ.events) if (e.key) { if (!evMonths.has(e.month)) evMonths.set(e.month, new Set()); evMonths.get(e.month).add(e.region); }
+    ctx.setLineDash([3, 3]);
+    for (const [m, regs] of evMonths) {
+      const x = Math.round(X(Math.max(0, m - 0.5))) + 0.5;
+      ctx.strokeStyle = regs.size === 2 ? col.muted : (regs.has(0) ? col.a : col.b);
+      ctx.globalAlpha = 0.7;
+      ctx.beginPath(); ctx.moveTo(x, T); ctx.lineTo(x, T + ph); ctx.stroke();
+    }
+    ctx.globalAlpha = 1; ctx.setLineDash([]);
+    // lines
+    const line = (s, color, dashed) => {
+      if (!s.length) return;
+      ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.lineCap = dashed ? 'butt' : 'round';
+      ctx.setLineDash(dashed ? [6, 6] : []);
+      ctx.beginPath();
+      s.forEach((v, i) => { const x = X(i), y = Y(v); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+      ctx.stroke();
+    };
+    // twins: B is dashed on top, so both colors stay visible while the lines overlap
+    if (mode === 'twins') { line(sA, col.a); line(sB, col.b, true); ctx.setLineDash([]); }
+    else { line(sB, col.b); line(sA, col.a); }
+    // end dots + direct labels (nudged apart)
+    if (n) {
+      const ends = [{ v: sA[n - 1], c: col.a, l: M().tags[0] }];
+      if (sB.length) ends.push({ v: sB[n - 1], c: col.b, l: 'B' });
+      for (const e of ends) { e.y = Y(e.v); e.ly = e.y; }
+      if (ends.length === 2 && Math.abs(ends[0].y - ends[1].y) < 14) {
+        const mid = (ends[0].y + ends[1].y) / 2, up = ends[0].y <= ends[1].y ? 0 : 1;
+        ends[up].ly = mid - 7; ends[1 - up].ly = mid + 7;
+      }
+      ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      for (const e of ends) {
+        const x = X(n - 1);
+        ctx.fillStyle = col.surface; ctx.beginPath(); ctx.arc(x, e.y, 5, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = e.c; ctx.beginPath(); ctx.arc(x, e.y, 3.5, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = col.ink2; ctx.font = '600 11px ' + css('--font');
+        ctx.fillText((e.l ? e.l + ' ' : '') + c.fmt(e.v), x + 8, Math.min(T + ph, Math.max(T, e.ly)));
+      }
+      ctx.font = '11px ' + css('--font');
+    }
+    // crosshair
+    if (st.hover && n) {
+      const rect = cv.getBoundingClientRect();
+      const px = st.hover.clientX - rect.left;
+      const i = Math.max(0, Math.min(n - 1, Math.round((px - L) / pw * (xMax - 1))));
+      st.hi = i;
+      const x = Math.round(X(i)) + 0.5;
+      ctx.strokeStyle = col.ink2; ctx.globalAlpha = 0.5; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(x, T); ctx.lineTo(x, T + ph); ctx.stroke(); ctx.globalAlpha = 1;
+      for (const [s, cc] of [[sA, col.a], [sB, col.b]]) {
+        if (!s.length) continue;
+        ctx.fillStyle = col.surface; ctx.beginPath(); ctx.arc(x, Y(s[i]), 5.5, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = cc; ctx.beginPath(); ctx.arc(x, Y(s[i]), 4, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+  }
+
+  function showTip(st, e) {
+    const tip = $('tip');
+    if (st.hi == null || !econ.history[0].length) { tip.style.display = 'none'; return; }
+    const i = st.hi, c = st.c;
+    const sA = series(c, 0), sB = series(c, 1);
+    tip.textContent = '';
+    const t = document.createElement('div'); t.className = 't'; t.textContent = c.title + ' · ' + when(i); tip.appendChild(t);
+    const rows = [[M().names[0], sA[i], css('--a')]];
+    if (sB.length) rows.push([M().names[1], sB[i], css('--b')]);
+    for (const [name, v, color] of rows) {
+      const r = document.createElement('div'); r.className = 'r';
+      const k = document.createElement('span'); k.className = 'k';
+      const sw = document.createElement('span'); sw.className = 'swatch'; sw.style.background = color;
+      k.append(sw, document.createTextNode(name));
+      const b = document.createElement('b'); b.textContent = c.fmt(v);
+      r.append(k, b); tip.appendChild(r);
+    }
+    const evs = econ.events.filter(ev => ev.key && Math.abs(ev.month - i) <= 1);
+    if (evs.length) {
+      const d = document.createElement('div'); d.className = 'ev';
+      d.textContent = evs.map(ev => `${M().subj[ev.region]}: ${ev.label} ${fmtPolicy(ev.key, ev.from)} → ${fmtPolicy(ev.key, ev.to)}`).join('; ');
+      tip.appendChild(d);
+    }
+    tip.style.display = 'block';
+    const w = tip.offsetWidth, h = tip.offsetHeight;
+    let x = e.clientX + 14, y = e.clientY + 14;
+    if (x + w > window.innerWidth - 8) x = e.clientX - w - 14;
+    if (y + h > window.innerHeight - 8) y = e.clientY - h - 14;
+    tip.style.left = x + 'px'; tip.style.top = y + 'px';
+  }
+
+  function fmtPolicy(key, v) {
+    if (key === 'balancedBudget') return v ? 'on' : 'off';
+    const c = CONTROLS.find(c => c.key === key);
+    return c ? c.fmt(v) : String(v);
+  }
+
+  // ---------- comparison table
+  const ROWS = [
+    ['Unemployment', 'unemployment', v => pct(v), (d) => pct(d, 1), true],
+    ['Inflation (12 months)', 'inflation', v => pct(v), (d) => pct(d, 1)],
+    ['Output per person', 'realGdpPerCapita', money, money, true],
+    ['Median income after tax', 'medianRealIncome', money, money, true],
+    ['Wealth inequality (Gini)', 'giniWealth', v => v.toFixed(2), d => d.toFixed(2)],
+    ['Top 1% wealth share', 'top1', v => pct(v), d => pct(d, 1)],
+    ['Millionaires', 'millionaires', v => String(v), d => String(d)],
+    ['Population', 'pop', v => v.toLocaleString(), d => d.toLocaleString()],
+    ['Government debt (% GDP)', 'debtToGdp', v => pct(v, 1), d => pct(d, 1)],
+    ['Average monthly pay', 'avgWage', money, money],
+  ];
+  function renderTable() {
+    const body = $('cmp'); body.textContent = '';
+    const a = econ.history[0], b = econ.history[1];
+    if (!a.length) return;
+    for (const [label, key, fmt, dfmt, smooth] of ROWS) {
+      const va = smooth ? smooth3(a, a.length - 1, key) : a[a.length - 1][key];
+      const tr = document.createElement('tr');
+      const cells = [label, fmt(va)];
+      if (nReg() === 2) {
+        const vb = smooth ? smooth3(b, b.length - 1, key) : b[b.length - 1][key];
+        const d = va - vb;
+        cells.push(fmt(vb), Math.abs(d) < 1e-9 ? '0' : signed(dfmt(d), d));
+      }
+      for (const txt of cells) {
+        const td = document.createElement('td'); td.textContent = txt; tr.appendChild(td);
+      }
+      if (nReg() === 2) tr.lastChild.className = 'diff';
+      body.appendChild(tr);
+    }
+  }
+
+  function pill(r) {
+    if (nReg() === 1) return [];
+    const p = document.createElement('span'); p.className = 'pill ' + (r ? 'b' : 'a'); p.textContent = M().tags[r];
+    return [p];
+  }
+  function renderLog() {
+    const ul = $('log'); ul.textContent = '';
+    const evs = econ.events.filter(e => e.key).slice().reverse();
+    const upcoming = schedule.filter(s => s[0] >= econ.month);
+    for (const s of upcoming.slice().reverse()) {
+      const li = document.createElement('li');
+      const t = document.createElement('time'); t.textContent = when(s[0]);
+      const p = pill(s[1]);
+      const tx = document.createElement('span'); tx.textContent = `Scheduled: ${POLICY_LABELS[s[2]]} → ${fmtPolicy(s[2], s[3])}`; tx.style.color = 'var(--muted)';
+      li.append(t, ...p, tx); ul.appendChild(li);
+    }
+    for (const e of evs) {
+      const li = document.createElement('li');
+      const t = document.createElement('time'); t.textContent = when(e.month);
+      const p = pill(e.region);
+      const tx = document.createElement('span'); tx.textContent = `${POLICY_LABELS[e.key]}: ${fmtPolicy(e.key, e.from)} → ${fmtPolicy(e.key, e.to)}`;
+      li.append(t, ...p, tx); ul.appendChild(li);
+    }
+    if (!ul.children.length) {
+      const li = document.createElement('li'); li.className = 'empty';
+      li.textContent = 'No changes yet. Move a slider or pick a scenario, then press Play.'; ul.appendChild(li);
+    }
+  }
+
+  function draw() {
+    for (const st of chartEls) drawChart(st);
+    renderTable();
+    const m = econ.month;
+    $('clock').textContent = 'Year ' + Math.floor(m / 12);
+    $('clockSub').textContent = 'month ' + (m % 12 + 1);
+  }
+
+  // ---------- simulation loop
+  function tick() {
+    for (const s of schedule) if (s[0] === econ.month) econ.setPolicy(s[1], s[2], s[3]);
+    const before = econ.events.length;
+    econ.step();
+    return before;
+  }
+  function advance(n) {
+    let changed = false;
+    for (let i = 0; i < n; i++) {
+      const hadSched = schedule.some(s => s[0] === econ.month);
+      tick();
+      if (hadSched) changed = true;
+    }
+    if (changed) { buildPolicyPanel(); }
+    renderLog();
+  }
+
+  let acc = 0, last = 0;
+  function loop(ts) {
+    if (!running) return;
+    if (!last) last = ts;
+    acc += (ts - last) / 1000 * speed; last = ts;
+    const n = Math.min(12, Math.floor(acc));
+    if (n > 0) { acc -= n; advance(n); draw(); }
+    requestAnimationFrame(loop);
+  }
+  function setRunning(on) {
+    running = on; $('play').textContent = on ? 'Pause' : 'Play';
+    if (on) { last = 0; acc = 0; requestAnimationFrame(loop); }
+  }
+
+  function start() {
+    const sc = SCENARIOS.find(s => s.id === scenarioId);
+    if (mode === 'twins') econ = new TwinEconomy({ seed });
+    else if (mode === 'single') econ = new Economy({ seed, regions: 1 });
+    else econ = new Economy({ seed, params: { allowMigration: $('optMig').checked, allowTrade: $('optTrade').checked } });
+    schedule = sc.steps.map(s => s.slice());
+    // show a short history so the page opens in a working state
+    advance(12);
+    buildPolicyPanel(); renderLog(); draw();
+  }
+
+  $('play').addEventListener('click', () => setRunning(!running));
+  $('stepYear').addEventListener('click', () => { advance(12); draw(); });
+  for (const b of document.querySelectorAll('[data-speed]')) {
+    b.addEventListener('click', () => {
+      speed = +b.dataset.speed;
+      for (const o of document.querySelectorAll('[data-speed]')) o.setAttribute('aria-pressed', o === b ? 'true' : 'false');
+    });
+  }
+  $('mode').addEventListener('change', () => { mode = $('mode').value; applyModeChrome(); start(); });
+  scenarioSel.addEventListener('change', () => { scenarioId = scenarioSel.value; start(); });
+  $('reset').addEventListener('click', start);
+  $('reseed').addEventListener('click', () => { seed = Math.floor(Math.random() * 1e6); start(); });
+  $('optMig').addEventListener('change', () => { econ.p.allowMigration = $('optMig').checked; });
+  $('optTrade').addEventListener('change', () => { econ.p.allowTrade = $('optTrade').checked; });
+  window.addEventListener('resize', draw);
+  const mo = new MutationObserver(draw); mo.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+  try { matchMedia('(prefers-color-scheme: dark)').addEventListener('change', draw); } catch (e) {}
+
+  // open on a worked example: Region A's wealth tax, eight years in
+  scenarioId = 'wealth';
+  applyModeChrome();
+  start();
+  advance(84); buildPolicyPanel(); draw();
+})();
+</script>
+</body>
+</html>
