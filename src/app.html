@@ -162,6 +162,7 @@ body:not(.linked) .onlyLinked { display: none !important; }
     <label class="inline" for="scenario">Scenario
       <select id="scenario"></select>
     </label>
+    <label class="inline" for="optWarm" title="Run 5 hidden years first so the economy starts settled. Off: watch it settle from its raw starting point."><input type="checkbox" id="optWarm" checked> Warm-up</label>
     <button id="reset">Restart</button>
     <button id="reseed" title="Same scenario with a different random draw">New random seed</button>
   </div>
@@ -410,6 +411,13 @@ body:not(.linked) .onlyLinked { display: none !important; }
     const sA = series(c, 0), sB = series(c, 1);
     const n = sA.length;
     ctx.font = '11px ' + css('--font');
+    // Year 0, nothing simulated yet: no data to scale an axis, so show a hint instead
+    if (!n) {
+      ctx.fillStyle = col.muted; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('Press Play or +1 year to start', W / 2, Hh / 2);
+      st.geom = null; st.hi = null;
+      return;
+    }
     // y range
     let mn = Infinity, mx = -Infinity;
     for (const v of sA.concat(sB)) { if (v < mn) mn = v; if (v > mx) mx = v; }
@@ -558,7 +566,12 @@ body:not(.linked) .onlyLinked { display: none !important; }
   function renderTable() {
     const body = $('cmp'); body.textContent = '';
     const a = econ.history[0], b = econ.history[1];
-    if (!a.length) return;
+    if (!a.length) {
+      const tr = document.createElement('tr'), td = document.createElement('td');
+      td.colSpan = nReg() === 2 ? 4 : 2; td.textContent = 'Year 0: no results yet.'; td.style.color = 'var(--muted)';
+      tr.appendChild(td); body.appendChild(tr);
+      return;
+    }
     for (const [label, key, fmt, dfmt, smooth] of ROWS) {
       const va = smooth ? smooth3(a, a.length - 1, key) : a[a.length - 1][key];
       const tr = document.createElement('tr');
@@ -647,12 +660,13 @@ body:not(.linked) .onlyLinked { display: none !important; }
 
   function start() {
     const sc = SCENARIOS.find(s => s.id === scenarioId);
-    if (mode === 'twins') econ = new TwinEconomy({ seed });
-    else if (mode === 'single') econ = new Economy({ seed, regions: 1 });
-    else econ = new Economy({ seed, params: { allowMigration: $('optMig').checked, allowTrade: $('optTrade').checked } });
+    // warm-up: 60 hidden months so the economy starts settled; off shows it settling from scratch
+    const burnIn = $('optWarm').checked ? 60 : 0;
+    if (mode === 'twins') econ = new TwinEconomy({ seed, burnIn });
+    else if (mode === 'single') econ = new Economy({ seed, burnIn, regions: 1 });
+    else econ = new Economy({ seed, burnIn, params: { allowMigration: $('optMig').checked, allowTrade: $('optTrade').checked } });
     schedule = sc.steps.map(s => s.slice());
-    // show a short history so the page opens in a working state
-    advance(12);
+    // start at Year 0: charts begin empty and fill in as the simulation runs
     buildPolicyPanel(); renderLog(); draw();
   }
 
@@ -667,6 +681,7 @@ body:not(.linked) .onlyLinked { display: none !important; }
   $('mode').addEventListener('change', () => { mode = $('mode').value; applyModeChrome(); start(); });
   scenarioSel.addEventListener('change', () => { scenarioId = scenarioSel.value; start(); });
   $('reset').addEventListener('click', start);
+  $('optWarm').addEventListener('change', start);   // burn-in happens at construction, so restart
   $('reseed').addEventListener('click', () => { seed = Math.floor(Math.random() * 1e6); start(); });
   $('optMig').addEventListener('change', () => { econ.p.allowMigration = $('optMig').checked; });
   $('optTrade').addEventListener('change', () => { econ.p.allowTrade = $('optTrade').checked; });
@@ -674,11 +689,10 @@ body:not(.linked) .onlyLinked { display: none !important; }
   const mo = new MutationObserver(draw); mo.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
   try { matchMedia('(prefers-color-scheme: dark)').addEventListener('change', draw); } catch (e) {}
 
-  // open on a worked example: Region A's wealth tax, eight years in
+  // open on a worked example: Region A's wealth tax (scheduled for year 2), starting at Year 0
   scenarioId = 'wealth';
   applyModeChrome();
   start();
-  advance(84); buildPolicyPanel(); draw();
 })();
 </script>
 </body>
