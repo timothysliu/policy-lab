@@ -157,10 +157,17 @@ body:not(.linked) .onlyLinked { display: none !important; }
         <option value="linked">Two linked regions</option>
         <option value="twins">Identical twins</option>
         <option value="single">Single country</option>
+        <option value="compare">Compare countries</option>
       </select>
     </label>
     <label class="inline" for="scenario">Scenario
       <select id="scenario"></select>
+    </label>
+    <label class="inline" for="countryA" title="Start with this country's policies. Custom = model defaults."><span id="countryALabel">Region A</span>
+      <select id="countryA"></select>
+    </label>
+    <label class="inline onlyTwo" for="countryB" title="Start with this country's policies. Custom = model defaults."><span id="countryBLabel">Region B</span>
+      <select id="countryB"></select>
     </label>
     <label class="inline" for="optWarm" title="Run 5 hidden years first so the economy starts settled. Off: watch it settle from its raw starting point."><input type="checkbox" id="optWarm" checked> Warm-up</label>
     <button id="reset">Restart</button>
@@ -218,6 +225,7 @@ body:not(.linked) .onlyLinked { display: none !important; }
 </div>
 <div class="tip" id="tip" role="tooltip"></div>
 
+<script src="countries.js"></script>
 <script src="engine.js"></script>
 <script>
 (function () {
@@ -230,9 +238,21 @@ body:not(.linked) .onlyLinked { display: none !important; }
       blurb: 'Two copies of the same country, built from the same random draws, with no trade or migration between them. With equal policies their lines overlap exactly, so any gap that opens up is caused by the policy you change.' },
     single: { names: ['Country'], subj: ['The country'], tags: [''],
       blurb: 'One closed economy: 1,000 simulated households and 40 firms, no trade and no migration. Change its policies and watch how jobs, prices and inequality respond.' },
+    compare: { names: ['Country A', 'Country B'], subj: ['Country A', 'Country B'], tags: ['A', 'B'],
+      blurb: 'Pick two countries (or Custom) and run them side by side. Both start from the same random draws with no trade or migration between them, so any gap comes from their different tax, welfare and interest-rate policies. Presets are rough approximations of real policy, scaled to the model.' },
   };
   let mode = 'linked';
-  const M = () => MODES[mode];
+  let econ, seed = 3, running = false, speed = 10, activeRegion = 0, schedule = [], scenarioId = 'baseline';
+  const $ = (id) => document.getElementById(id);
+  const CUSTOM = 'Custom';
+  const countrySel = [$('countryA'), $('countryB')];
+  const presetOf = (r) => COUNTRIES[countrySel[r].value] ? countrySel[r].value : null;
+  // mode labels, with a picked country's name replacing the generic "Region A" etc.
+  const M = () => {
+    const base = MODES[mode];
+    const pick = (arr) => arr.map((v, r) => presetOf(r) || v);
+    return Object.assign({}, base, { names: pick(base.names), subj: pick(base.subj) });
+  };
   const nReg = () => mode === 'single' ? 1 : 2;
 
   // ---------- formatting
@@ -260,9 +280,26 @@ body:not(.linked) .onlyLinked { display: none !important; }
     { key: 'publicSpending', label: 'Public spending', min: 0, max: 0.3, step: 0.01, fmt: v => pct(v, 0) + ' of GDP', note: 'Only used when the budget isn’t balanced' },
   ];
 
-  let econ, seed = 3, running = false, speed = 10, activeRegion = 0, schedule = [], scenarioId = 'baseline';
+  // ---------- country presets (src/countries.js)
+  function fillCountries() {
+    for (const sel of countrySel) {
+      sel.textContent = '';
+      for (const name of [CUSTOM, ...Object.keys(COUNTRIES)]) {
+        const o = document.createElement('option'); o.value = name; o.textContent = name; sel.appendChild(o);
+      }
+      sel.value = CUSTOM;
+    }
+  }
+  // starting policies for region r: model defaults, overridden by the picked country's preset
+  const startPolicy = (r) => Object.assign({}, DEFAULT_POLICY, COUNTRIES[countrySel[r].value] || {});
+  function applyStartPolicies() {
+    for (let r = 0; r < nReg(); r++) {
+      const pol = startPolicy(r);
+      for (const k of Object.keys(pol)) econ.setPolicy(r, k, pol[k], true);   // quiet: a starting point, not a change
+    }
+  }
 
-  const ALL = ['linked', 'twins', 'single'];
+  const ALL = ['linked', 'twins', 'single', 'compare'];
   const SCENARIOS = [
     { id: 'baseline', name: S => 'No policy changes', steps: [], modes: ALL },
     { id: 'wealth', name: S => `${S[0]} adds a 3% wealth tax`, steps: [[24, 0, 'wealthTax', 0.03]], modes: ALL },
@@ -270,10 +307,9 @@ body:not(.linked) .onlyLinked { display: none !important; }
     { id: 'tariff', name: S => 'Trade war: A tariffs, B retaliates', steps: [[24, 0, 'tariff', 0.3], [36, 1, 'tariff', 0.3]], modes: ['linked'] },
     { id: 'ubi', name: S => `${S[0]} pays $1,000/mo UBI (tax-funded)`, steps: [[24, 0, 'ubi', 1000], [24, 0, 'incomeTax', 0.32]], modes: ALL },
     { id: 'ubidebt', name: S => `${S[0]} pays $1,000/mo UBI on borrowed money`, steps: [[24, 0, 'balancedBudget', false], [24, 0, 'publicSpending', 0.14], [24, 0, 'ubi', 1000]], modes: ALL },
-    { id: 'race', name: S => `${S[1]} cuts top and corporate taxes`, steps: [[24, 1, 'topTax', 0.2], [24, 1, 'corpTax', 0.1]], modes: ['linked', 'twins'] },
+    { id: 'race', name: S => `${S[1]} cuts top and corporate taxes`, steps: [[24, 1, 'topTax', 0.2], [24, 1, 'corpTax', 0.1]], modes: ['linked', 'twins', 'compare'] },
   ];
 
-  const $ = (id) => document.getElementById(id);
   const scenarioSel = $('scenario');
   function fillScenarios() {
     scenarioSel.textContent = '';
@@ -287,6 +323,8 @@ body:not(.linked) .onlyLinked { display: none !important; }
     document.body.classList.toggle('linked', mode === 'linked');
     $('blurb').textContent = M().blurb;
     for (const el of document.querySelectorAll('.nm')) el.textContent = M().names[+el.dataset.r] || '';
+    $('countryALabel').textContent = MODES[mode].names[0];
+    $('countryBLabel').textContent = MODES[mode].names[1] || '';
     if (mode === 'single') activeRegion = 0;
     for (const u of document.querySelectorAll('.tabs button')) u.setAttribute('aria-selected', +u.dataset.r === activeRegion ? 'true' : 'false');
     const head = $('cmpHead'); head.textContent = '';
@@ -332,8 +370,9 @@ body:not(.linked) .onlyLinked { display: none !important; }
       copy.addEventListener('click', () => { for (const k of Object.keys(DEFAULT_POLICY)) econ.setPolicy(activeRegion, k, econ.policies[other][k]); buildPolicyPanel(); renderLog(); draw(); });
       act.append(copy);
     }
-    const def = document.createElement('button'); def.textContent = 'Back to defaults';
-    def.addEventListener('click', () => { for (const k of Object.keys(DEFAULT_POLICY)) econ.setPolicy(activeRegion, k, DEFAULT_POLICY[k]); buildPolicyPanel(); renderLog(); draw(); });
+    const def = document.createElement('button');
+    def.textContent = presetOf(activeRegion) ? `Back to ${presetOf(activeRegion)} settings` : 'Back to defaults';
+    def.addEventListener('click', () => { const pol = startPolicy(activeRegion); for (const k of Object.keys(pol)) econ.setPolicy(activeRegion, k, pol[k]); buildPolicyPanel(); renderLog(); draw(); });
     act.append(def);
     host.appendChild(act);
   }
@@ -358,7 +397,7 @@ body:not(.linked) .onlyLinked { display: none !important; }
     { key: 'realGdpPerCapita', title: 'Output per person', sub: 'Real, per year, 3-month average', fmt: money, smooth: true },
     { key: 'medianRealIncome', title: 'Median income after tax', sub: 'Real, per year, includes UBI, 3-month average', fmt: money, smooth: true },
     { key: 'top1', title: 'Top 1% wealth share', sub: 'Share of wealth held by the richest 1%', fmt: v => pct(v), zero: true , pctAxis: true },
-    { key: 'giniWealth', title: 'Wealth inequality', sub: 'Gini coefficient: 0 = everyone equal, 1 = one person owns everything', fmt: v => v.toFixed(2), modes: ['twins', 'single'] },
+    { key: 'giniWealth', title: 'Wealth inequality', sub: 'Gini coefficient: 0 = everyone equal, 1 = one person owns everything', fmt: v => v.toFixed(2), modes: ['twins', 'single', 'compare'] },
     { key: 'pop', title: 'Population', sub: 'Residents; both regions start with 1,000', fmt: v => Math.round(v).toLocaleString(), modes: ['linked'] },
     { key: 'debtToGdp', title: 'Government debt', sub: 'Accumulated deficits as % of a year’s GDP', fmt: v => pct(v, 1), pctAxis: true, zeroLine: true },
     { key: 'tradeBalance', title: 'Trade balance', sub: 'Exports minus imports, % of GDP, 3-month average', fmt: v => pct(v), smooth: true, zeroLine: true , pctAxis: true, modes: ['linked'] },
@@ -662,11 +701,12 @@ body:not(.linked) .onlyLinked { display: none !important; }
     const sc = SCENARIOS.find(s => s.id === scenarioId);
     // warm-up: 60 hidden months so the economy starts settled; off shows it settling from scratch
     const burnIn = $('optWarm').checked ? 60 : 0;
-    if (mode === 'twins') econ = new TwinEconomy({ seed, burnIn });
+    if (mode === 'twins' || mode === 'compare') econ = new TwinEconomy({ seed, burnIn });
     else if (mode === 'single') econ = new Economy({ seed, burnIn, regions: 1 });
     else econ = new Economy({ seed, burnIn, params: { allowMigration: $('optMig').checked, allowTrade: $('optTrade').checked } });
     schedule = sc.steps.map(s => s.slice());
     // start at Year 0: charts begin empty and fill in as the simulation runs
+    applyStartPolicies();
     buildPolicyPanel(); renderLog(); draw();
   }
 
@@ -678,7 +718,12 @@ body:not(.linked) .onlyLinked { display: none !important; }
       for (const o of document.querySelectorAll('[data-speed]')) o.setAttribute('aria-pressed', o === b ? 'true' : 'false');
     });
   }
-  $('mode').addEventListener('change', () => { mode = $('mode').value; applyModeChrome(); start(); });
+  $('mode').addEventListener('change', () => {
+    mode = $('mode').value;
+    // comparing two Customs shows nothing, so open on a real pair
+    if (mode === 'compare' && !presetOf(0) && !presetOf(1)) { countrySel[0].value = 'USA'; countrySel[1].value = 'Japan'; }
+    applyModeChrome(); start();
+  });
   scenarioSel.addEventListener('change', () => { scenarioId = scenarioSel.value; start(); });
   $('reset').addEventListener('click', start);
   $('optWarm').addEventListener('change', start);   // burn-in happens at construction, so restart
@@ -686,11 +731,14 @@ body:not(.linked) .onlyLinked { display: none !important; }
   $('optMig').addEventListener('change', () => { econ.p.allowMigration = $('optMig').checked; });
   $('optTrade').addEventListener('change', () => { econ.p.allowTrade = $('optTrade').checked; });
   window.addEventListener('resize', draw);
+  // a preset is a starting point, so picking one restarts the run (names in labels and scenarios update too)
+  for (const sel of countrySel) sel.addEventListener('change', () => { applyModeChrome(); start(); });
   const mo = new MutationObserver(draw); mo.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
   try { matchMedia('(prefers-color-scheme: dark)').addEventListener('change', draw); } catch (e) {}
 
   // open on a worked example: Region A's wealth tax (scheduled for year 2), starting at Year 0
   scenarioId = 'wealth';
+  fillCountries();
   applyModeChrome();
   start();
 })();

@@ -2,11 +2,14 @@
 
 An agent-based simulation of national economies. Thousands of simulated households and firms work, trade, pay taxes and migrate, and a live dashboard lets you change policies (taxes, UBI, minimum wage, tariffs, public spending, interest rates) and watch jobs, prices, inequality and migration respond.
 
-Three modes:
+Four modes:
 
 - **Two linked regions**: two economies that trade goods and swap residents. Both start as exact copies.
 - **Identical twins**: two separate copies of one country built from the same random draws. With equal policies they stay identical month for month, so any gap is caused by the policy you change.
 - **Single country**: one closed economy.
+- **Compare countries**: pick two of the 10 largest economies (or Custom) and run them side by side, built from the same random draws with no trade or migration, so any gap comes from their policies.
+
+Every mode also has country preset menus (USA, China, Germany, Japan, India, UK, France, Italy, Canada, Brazil) that set a region's starting policies. The presets are rough approximations scaled to the model, not exact real-world figures.
 
 No dependencies: plain JavaScript, runs in any browser, tested with Node 18+.
 
@@ -29,9 +32,10 @@ npm run build              # write dist/index.html, a single self-contained file
 ```
 src/
   engine.js        the whole model (works in the browser and in Node)
-  app.html         the dashboard: sliders, charts, scenarios; loads engine.js from the same folder
+  countries.js     starting-policy presets for the 10 largest economies
+  app.html         the dashboard: sliders, charts, scenarios; loads countries.js and engine.js from the same folder
 scripts/
-  build.js         inlines engine.js into app.html -> dist/index.html
+  build.js         inlines countries.js and engine.js into app.html -> dist/index.html
   scenarios.js     headless policy experiments
 test/
   engine.test.js   determinism, identical starts, stability, policy effects, money conservation, interest rates
