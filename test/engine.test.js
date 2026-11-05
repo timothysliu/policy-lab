@@ -71,14 +71,59 @@ test('a high minimum wage raises unemployment', () => {
   assert.ok(uA > uB + 0.03, `with min wage ${uA}, without ${uB}`);
 });
 
-test('money is conserved when the budget is balanced and nobody borrows', () => {
+// Money held by households, firms and the dividend pool, net of what the government and the
+// central bank created (government debt, firm loans, and the bank's net interest position).
+const netMoney = (e) =>
+  e.households.reduce((s, h) => s + h.wealth, 0) +
+  e.firms.reduce((s, f) => s + f.cash - f.loan, 0) +
+  e.divPool - e.govDebt[0] + e.bankEquity[0];
+
+test('money is conserved when the budget is balanced', () => {
   const e = new Economy({ seed: 3, regions: 1 });
-  const total = () =>
-    e.households.reduce((s, h) => s + h.wealth, 0) +
-    e.firms.reduce((s, f) => s + f.cash, 0) +
-    e.divPool - e.govDebt[0];
-  const before = total();
+  const before = netMoney(e);
   e.run(36);
-  const after = total();
+  const after = netMoney(e);
   assert.ok(Math.abs(after - before) / before < 1e-6, `drift ${(after - before) / before}`);
+});
+
+test('money is still conserved with a positive interest rate', () => {
+  const e = new Economy({ seed: 3, regions: 1 });
+  e.setPolicy(0, 'interestRate', 0.05);
+  const before = netMoney(e);
+  e.run(36);
+  const after = netMoney(e);
+  assert.ok(Math.abs(after - before) / before < 1e-6, `drift ${(after - before) / before}`);
+});
+
+test('households earn the policy rate on savings', () => {
+  const t = new TwinEconomy({ seed: 3 });
+  t.setPolicy(0, 'interestRate', 0.05);
+  const twin = t.twins[0];
+  const savings = twin.households.reduce((s, h) => s + Math.max(0, h.wealth), 0);
+  t.step();
+  const expected = savings * 0.05 / 12;
+  assert.ok(Math.abs(t.latest(0).depositInterest - expected) < 1e-6 * expected,
+    `paid ${t.latest(0).depositInterest}, expected ${expected}`);
+  assert.equal(t.latest(1).depositInterest, 0); // the twin at 0% pays nothing
+});
+
+test('firms pay the policy rate plus a spread on loans', () => {
+  const e = new Economy({ seed: 3, regions: 1 });
+  e.setPolicy(0, 'interestRate', 0.04);
+  const f = e.firms[0];
+  f.loan = 100000;
+  e.step();
+  const expected = 100000 * (0.04 + e.p.loanSpread) / 12;
+  assert.ok(Math.abs(e.firms[0].interestPaid - expected) < 1e-6, `paid ${e.firms[0].interestPaid}`);
+  assert.ok(e.latest(0).loanInterest >= expected);
+});
+
+test('firms borrow to cover payroll instead of laying off when short of cash', () => {
+  const e = new Economy({ seed: 3, regions: 1 });
+  const f = e.firms[0];
+  const staff = f.workers.length;
+  f.cash = 0;
+  e.step();
+  assert.ok(e.firms[0].loan > 0, 'firm drew on its credit line');
+  assert.ok(e.firms[0].workers.length >= staff * 0.8, `kept ${e.firms[0].workers.length} of ${staff}`);
 });

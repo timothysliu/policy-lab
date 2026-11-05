@@ -2,7 +2,9 @@
  * Two-region agent-based economy.
  * One tick = one month. Households work, earn, pay tax, consume, save and migrate.
  * Firms hire, produce, price, pay dividends and go bankrupt. Governments tax, transfer and spend.
- * Money is conserved except for government deficits (which create money).
+ * A central bank sets a policy interest rate: households earn it on savings, firms pay it
+ * (plus a spread) on credit lines they draw to cover payroll.
+ * Money is conserved except for government deficits, bank lending and net interest (all tracked).
  */
 (function (global) {
   'use strict';
@@ -26,6 +28,7 @@
     tariff: 0.00,         // tax on imports from the other region
     publicSpending: 0.12, // government purchases, share of GDP (ignored when balancedBudget)
     balancedBudget: true, // spend whatever revenue is left after UBI
+    interestRate: 0.00,   // central bank policy rate (annual): paid on savings, charged on firm loans
   };
 
   const PARAMS = {
@@ -43,6 +46,8 @@
     inventoryDecay: 0.03,
     migrationCheck: 0.03,     // share of households that consider moving each month
     congestion: 0.8,          // utility penalty per unit of population share above 50%
+    loanSpread: 0.02,         // annual premium firms pay over the policy rate
+    creditLimit: 3,           // firms can borrow up to this many months of payroll
     allowMigration: true,
     allowTrade: true,
   };
@@ -50,7 +55,7 @@
   const POLICY_LABELS = {
     incomeTax: 'income tax', topTax: 'top income tax', wealthTax: 'wealth tax', corpTax: 'corporate tax',
     ubi: 'UBI', minWage: 'minimum wage', tariff: 'tariff', publicSpending: 'public spending',
-    balancedBudget: 'balanced budget',
+    balancedBudget: 'balanced budget', interestRate: 'interest rate',
   };
 
   function gini(sortedVals) {
@@ -78,6 +83,7 @@
       this.history = [[], []];
       this.events = [];
       this.govDebt = [0, 0];
+      this.bankEquity = [0, 0]; // central bank: loan interest received minus deposit interest paid minus write-offs
       this.divPool = 0;
       this.lastRevenue = [0, 0];
       this.lastUBI = [0, 0];
@@ -95,6 +101,7 @@
       if (this.R === 2) this.mirrorRegion();
       this.month = 0; this.history = [[], []]; this.events = [];
       this.govDebt = [0, 0];
+      this.bankEquity = [0, 0];
       this.cpiBase = this.regs.map(r => this.priceIndex(r));
       this.cpiHist = [this.cpiHist[0].slice(-13), this.cpiHist[1].slice(-13)];
     }
@@ -148,7 +155,7 @@
           const h = {
             id: this.households.length, region: r, skill: q.skill, wealth: q.wealth,
             employer: -1, wage: 0, gross: 0, net: q.baseIncome * 0.8, netSmooth: q.baseIncome * 0.8,
-            div: 0, attachment: q.attachment, lastMove: -999,
+            div: 0, interest: 0, attachment: q.attachment, lastMove: -999,
           };
           this.households.push(h);
           if (q.job >= 0) this.employ(this.firms[r * p.firmsPerRegion + q.job], h);
@@ -170,7 +177,7 @@
       const wageRate = template ? template.wageRate : p.laborShare * p.baseProductivity * p.startPrice;
       return {
         id: this.firms ? this.firms.length : 0, region, A, price, wageRate,
-        inventory: 0, cash: 0, workers: [], expSales: 0, salesQty: 0, salesRev: 0,
+        inventory: 0, cash: 0, loan: 0, interestPaid: 0, workers: [], expSales: 0, salesQty: 0, salesRev: 0,
         output: 0, vac: 0, noVac: 0, idle: 0, age: 0, lastWageBill: 0, profit: 0,
       };
     }
@@ -282,6 +289,12 @@
       for (const f of F) {
         let bill = this.wageBill(f);
         if (bill > f.cash && f.workers.length) {
+          // draw on the credit line before laying anyone off
+          const room = Math.max(0, p.creditLimit * Math.max(bill, f.lastWageBill) - f.loan);
+          const draw = Math.min(bill - f.cash, room);
+          f.cash += draw; f.loan += draw;
+        }
+        if (bill > f.cash && f.workers.length) {
           const ws = f.workers.map(id => H[id]).sort((a, b) => (a.skill / a.wage) - (b.skill / b.wage));
           for (const h of ws) { if (bill <= f.cash) break; bill -= h.wage; this.fire(f, h); }
         }
@@ -300,6 +313,13 @@
       for (const h of H) W += Math.max(0, h.wealth);
       for (const h of H) { h.div = W > 0 ? this.divPool * Math.max(0, h.wealth) / W : 0; gross[h.id] += h.div; }
       this.divPool = 0;
+
+      // 3b. Interest on savings, paid by the central bank where the household lives
+      const depInterest = [0, 0];
+      for (const h of H) {
+        const i = Math.max(0, h.wealth) * this.policies[h.region].interestRate / 12;
+        h.interest = i; gross[h.id] += i; depInterest[h.region] += i;
+      }
 
       // 4. Taxes and transfers
       const rev = [0, 0], revInc = [0, 0], revWealth = [0, 0], revCorp = [0, 0], revTariff = [0, 0], ubiPaid = [0, 0];
@@ -378,9 +398,13 @@
       }
 
       // 7. Firms: corporate tax, pricing, expectations, dividends, exit/entry
+      const loanInterest = [0, 0];
       for (const f of F) {
         const pol = this.policies[f.region];
-        const profit = f.salesRev - f.lastWageBill;
+        // interest on the credit line goes to the central bank and counts as a cost
+        const li = f.loan * (pol.interestRate + p.loanSpread) / 12;
+        f.cash -= li; f.interestPaid = li; loanInterest[f.region] += li;
+        const profit = f.salesRev - f.lastWageBill - li;
         f.profit = profit;
         if (profit > 0) { const t = profit * pol.corpTax; f.cash -= t; revCorp[f.region] += t; }
         f.expSales = 0.75 * f.expSales + 0.25 * f.salesQty;
@@ -388,10 +412,15 @@
         if (invRatio < 0.25) f.price *= 1 + 0.025 * rng();
         else if (invRatio > 0.8) f.price *= 1 - 0.025 * rng();
         if (f.output > 0) {
-          const unitCost = f.lastWageBill / f.output;
+          const unitCost = (f.lastWageBill + li) / f.output;
           if (f.price < unitCost * 1.02) f.price = 0.7 * f.price + 0.3 * unitCost * 1.02;
         }
         const buffer = 3 * Math.max(f.lastWageBill, f.wageRate * 2);
+        // repay loans out of spare cash before paying dividends
+        if (f.loan > 0 && f.cash > f.lastWageBill) {
+          const repay = Math.min(f.loan, f.cash - f.lastWageBill);
+          f.cash -= repay; f.loan -= repay;
+        }
         if (f.cash > buffer) { const d = 0.3 * (f.cash - buffer); f.cash -= d; this.divPool += d; }
         f.idle = (f.salesQty < 1e-6 && f.workers.length === 0) ? f.idle + 1 : 0;
         f.age++;
@@ -406,6 +435,7 @@
           const nf = this.newFirm(f.region, tmpl);
           nf.id = f.id;
           this.divPool += Math.max(0, f.inventory * 0) + f.cash; // leftover cash (may be negative)
+          this.bankEquity[f.region] -= f.loan;                     // unpaid loan is written off
           const seed = tmpl.wageRate * 6;
           nf.cash = seed; this.divPool -= seed;
           nf.expSales = Math.max(1, tmpl.expSales * 0.3);
@@ -426,6 +456,7 @@
         rev[r] = revInc[r] + revWealth[r] + revCorp[r] + revTariff[r];
         this.govDebt[r] += govSpent[r] + ubiPaid[r] - rev[r];
         this.lastRevenue[r] = rev[r];
+        this.bankEquity[r] += loanInterest[r] - depInterest[r];
       }
 
       // 8. Migration
@@ -437,7 +468,7 @@
           const r = h.region, o = 1 - r;
           const expWage = (rr) => h.skill * st[rr].avgWageRate * (1 - st[rr].u);
           const valueIn = (rr, wage) => {
-            const y = wage + h.div;
+            const y = wage + h.div + Math.max(0, h.wealth) * this.policies[rr].interestRate / 12;
             return y - this.incomeTax(rr, y) + this.policies[rr].ubi - this.wealthTax(rr, h.wealth);
           };
           const ownWage = h.employer >= 0 ? h.wage : expWage(r);
@@ -488,6 +519,10 @@
           medianRealIncome: pop ? nets[Math.floor(pop / 2)] / (cpi / cpi0) * 12 : 0,
           revenue: rev[r], revInc: revInc[r], revWealth: revWealth[r], revCorp: revCorp[r], revTariff: revTariff[r],
           ubiPaid: ubiPaid[r], govSpent: govSpent[r],
+          interestRate: this.policies[r].interestRate,
+          depositInterest: depInterest[r], loanInterest: loanInterest[r],
+          firmDebt: firms.reduce((s, f) => s + f.loan, 0),
+          firmDebtToGdp: gdp > 0 ? firms.reduce((s, f) => s + f.loan, 0) / (gdp * 12) : 0,
           debtToGdp: gdp > 0 ? this.govDebt[r] / (gdp * 12) : 0,
           exports: exports[r], imports: exports[1 - r],
           tradeBalance: gdp > 0 ? (exports[r] - exports[1 - r]) / gdp : 0,

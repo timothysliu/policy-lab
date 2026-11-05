@@ -209,7 +209,7 @@ body:not(.linked) .onlyLinked { display: none !important; }
       <div class="about">
         <p>Each tick is one month. <strong>Households</strong> differ in skill and wealth. They work if a firm hires them, pay income and wealth tax where they live, get UBI, spend part of their income and wealth, and save the rest. Richer households spend a smaller share.</p>
         <p><strong>Firms</strong> hire workers whose output covers their pay, raise prices when shelves run low and cut them when unsold goods pile up, raise wages when they can't fill jobs, pay out spare cash as dividends to shareholders (everyone, in proportion to wealth) and go bankrupt when they run out of money.</p>
-        <p><strong>Trade:</strong> shoppers buy mostly from home but shift toward the other region's goods when they are cheaper. A tariff makes imports dearer and goes to the importing government. <strong>Migration:</strong> each month a few people compare their after-tax situation in both regions and move if the gain beats their moving cost. Crowding makes a region less attractive.</p>
+        <p><strong>Trade:</strong> shoppers buy mostly from home but shift toward the other region's goods when they are cheaper. A tariff makes imports dearer and goes to the importing government. <strong>Central bank:</strong> each region sets a policy interest rate. Households earn it on their savings, and firms that borrow to cover payroll pay it plus a 2% spread. <strong>Migration:</strong> each month a few people compare their after-tax situation in both regions and move if the gain beats their moving cost. Crowding makes a region less attractive.</p>
         <p>These are assumptions, not forecasts. The results show what follows <em>if</em> people and firms behave this way, which makes the model useful for testing ideas, not for predicting a real economy.</p>
       </div>
     </div>
@@ -255,6 +255,7 @@ body:not(.linked) .onlyLinked { display: none !important; }
     { key: 'ubi', label: 'Universal basic income', min: 0, max: 2000, step: 50, fmt: v => money(v) + '/mo', note: 'Paid to every resident' },
     { key: 'minWage', label: 'Minimum wage', min: 0, max: 6000, step: 100, fmt: v => v ? money(v) + '/mo' : 'None', note: v => v ? `About $${(v / 173).toFixed(2)}/hour full time` : 'Average pay starts near $5k/month' },
     { key: 'tariff', label: 'Tariff on imports', min: 0, max: 1, step: 0.05, fmt: v => pct(v, 0), note: 'On goods bought from the other region' },
+    { key: 'interestRate', label: 'Central bank interest rate', min: 0, max: 0.1, step: 0.0025, fmt: v => pct(v, 2), note: 'Per year: earned on savings, paid (plus 2%) on firm loans' },
     { key: 'publicSpending', label: 'Public spending', min: 0, max: 0.3, step: 0.01, fmt: v => pct(v, 0) + ' of GDP', note: 'Only used when the budget isn’t balanced' },
   ];
 
